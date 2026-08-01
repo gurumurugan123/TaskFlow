@@ -1,0 +1,16 @@
+# Environment / secrets
+.env
+
+# IDE
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Django
+*.sqlite3
+db.sqlite3
