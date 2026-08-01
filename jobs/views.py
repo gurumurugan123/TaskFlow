@@ -1,10 +1,14 @@
-from rest_framework import viewsets, status
-from .serializers import JobSerializer, JobCreateSerializer
-import uuid
 import json
-from .models import Job
-from redis_client import redis_client
+
+from rest_framework import status, viewsets
 from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from redis_client import redis_client
+
+from .models import Job
+from .queue import enqueue_job
+from .serializers import JobCreateSerializer, JobSerializer, PreparePdfSerializer
 
 
 class JobViewSet(viewsets.ViewSet):
@@ -17,40 +21,13 @@ class JobViewSet(viewsets.ViewSet):
         serializer = JobCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        payload = serializer.validated_data
-        job_id = str(uuid.uuid4())
-
-        # 1) Save in Postgres (history)
-        Job.objects.create(
-            id=job_id,
-            status=Job.STATUS_PENDING,
-            payload=payload,
-            attempts=0,
-        )
-
-        # 2) Save live state in Redis
-        redis_client.hset(
-            f"job:{job_id}",
-            mapping={
-                "id": job_id,
-                "status": Job.STATUS_PENDING,
-                "payload": json.dumps(payload),
-                "attempts": "0",
-                "result": "",
-            },
-        )
-        redis_client.lpush("queue:pending", job_id)
-
+        job_id = enqueue_job(serializer.validated_data)
         return Response(
-            {
-                "id": job_id,
-                "status": Job.STATUS_PENDING,
-            },
+            {"id": job_id, "status": Job.STATUS_PENDING},
             status=status.HTTP_201_CREATED,
         )
 
     def retrieve(self, request, pk=None):
-        # Prefer Redis (live status)
         job_data = redis_client.hgetall(f"job:{pk}")
 
         if job_data:
@@ -62,7 +39,6 @@ class JobViewSet(viewsets.ViewSet):
                 job_data["result"] = None
             return Response(job_data, status=status.HTTP_200_OK)
 
-        # Fallback to DB
         try:
             job = Job.objects.get(id=pk)
         except Job.DoesNotExist:
@@ -71,3 +47,34 @@ class JobViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(JobSerializer(job).data, status=status.HTTP_200_OK)
+
+
+class PreparePdfView(APIView):
+    """
+    POST /pdfs/prepare/
+
+    Returns immediately with a job id. PDF is built in the background worker.
+    """
+
+    def post(self, request):
+        serializer = PreparePdfSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        payload = {
+            "task": "prepare_pdf",
+            "data": {
+                "title": serializer.validated_data["title"],
+                "content": serializer.validated_data.get("content", ""),
+            },
+        }
+        job_id = enqueue_job(payload)
+
+        return Response(
+            {
+                "message": "PDF preparation started",
+                "job_id": job_id,
+                "status": Job.STATUS_PENDING,
+                "status_url": f"/jobs/{job_id}/",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
