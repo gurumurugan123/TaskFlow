@@ -77,9 +77,91 @@ python manage.py runserver
 # Terminal 2 — workers (3 parallel)
 python run_workers.py --count 3
 
-# Terminal 3 — optional: Redis via Docker
+# Terminal 3 — Redis (required before API/worker)
 docker run -d -p 6379:6379 --name redis-local redis:7-alpine
 ```
+
+---
+
+## Try the API (for reviewers & recruiters)
+
+**5-minute test** — clone the repo, start services, then run these requests.
+
+### Step 1 — Start everything
+
+Open **3 terminals** in the project folder:
+
+```bash
+# Terminal A — Redis (skip if already running)
+docker start redis-local
+# OR first time: docker run -d -p 6379:6379 --name redis-local redis:7-alpine
+
+# Terminal B — API
+python manage.py runserver
+
+# Terminal C — Worker (required or jobs stay pending forever)
+python run_workers.py
+```
+
+Base URL: **http://127.0.0.1:8000**
+
+### Step 2 — Option A: Postman (easiest)
+
+1. Open [Postman](https://www.postman.com/downloads/)
+2. **Import** → `docs/TaskFlow.postman_collection.json`
+3. Run requests **1 → 2 → 3** in order
+4. Request **2** uses the `job_id` saved from request **1** automatically
+
+### Step 2 — Option B: curl (Windows PowerShell)
+
+**Create a job:**
+```powershell
+curl -X POST http://127.0.0.1:8000/jobs/ -H "Content-Type: application/json" -d "{\"task\": \"demo\", \"data\": {}}"
+```
+Copy the `"id"` from the response.
+
+**Check status** (replace `YOUR_JOB_ID`):
+```powershell
+curl http://127.0.0.1:8000/jobs/YOUR_JOB_ID/
+```
+Expected: `"status": "completed"` after ~1 second (worker running).
+
+**Prepare PDF in background:**
+```powershell
+curl -X POST http://127.0.0.1:8000/pdfs/prepare/ -H "Content-Type: application/json" -H "Idempotency-Key: demo-pdf-1" -d "{\"title\": \"Invoice\", \"content\": \"Test PDF\"}"
+```
+
+**List failed jobs (dead-letter queue):**
+```powershell
+curl http://127.0.0.1:8000/jobs/dead/
+```
+
+### Step 2 — Option C: Browser
+
+Open in browser (GET only):
+
+- http://127.0.0.1:8000/jobs/dead/
+
+For POST endpoints use Postman or curl.
+
+### What you should see
+
+| Test | Expected |
+|------|----------|
+| POST `/jobs/` with `demo` | `201`, `"status": "pending"` |
+| GET `/jobs/{id}/` after 1–2s | `"status": "completed"` |
+| POST `/pdfs/prepare/` | `202`, `"job_id": "..."` |
+| Same Idempotency-Key twice | Second response: `"idempotent_replay": true` |
+| POST `bad_task` × 1 job, wait ~15s | Job appears in GET `/jobs/dead/` |
+
+### Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Connection refused | Run `python manage.py runserver` |
+| Status stays `pending` | Run `python worker.py` or `python run_workers.py` |
+| Redis error | Start Redis: `docker start redis-local` |
+| DB error | Check `.env`, run `python manage.py migrate` |
 
 ---
 
@@ -252,6 +334,8 @@ python run_workers.py --count 3
 
 ```
 TaskFlow/
+├── docs/
+│   └── TaskFlow.postman_collection.json   # Import into Postman
 ├── taskflow/          # Django project settings & urls
 ├── jobs/              # Job app (models, views, serializers, queue)
 ├── worker.py          # Background worker (run separately)

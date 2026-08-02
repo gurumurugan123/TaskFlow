@@ -1,0 +1,119 @@
+{
+  "info": {
+    "name": "TaskFlow API",
+    "description": "Import this collection in Postman to test TaskFlow locally.\n\nBefore testing:\n1. python manage.py runserver\n2. python run_workers.py (or run_workers.py --count 3)\n3. Redis + Postgres running\n\nBase URL: http://127.0.0.1:8000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "job_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Create demo job",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"task\": \"demo\",\n  \"data\": {}\n}"
+        },
+        "url": "{{base_url}}/jobs/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "  var json = pm.response.json();",
+              "  pm.collectionVariables.set('job_id', json.id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Get job status",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/jobs/{{job_id}}/"
+      }
+    },
+    {
+      "name": "3. Prepare PDF (background)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "invoice-demo-1" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Invoice Demo\",\n  \"content\": \"Month: January\\nAmount: 100\"\n}"
+        },
+        "url": "{{base_url}}/pdfs/prepare/"
+      }
+    },
+    {
+      "name": "4. Idempotency test (same key, replay)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "invoice-demo-1" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Invoice Demo\",\n  \"content\": \"Month: January\\nAmount: 100\"\n}"
+        },
+        "url": "{{base_url}}/pdfs/prepare/"
+      }
+    },
+    {
+      "name": "5. Retry test (fail_demo)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"task\": \"fail_demo\",\n  \"data\": { \"fail_until_attempt\": 3 }\n}"
+        },
+        "url": "{{base_url}}/jobs/"
+      }
+    },
+    {
+      "name": "6. Dead-letter queue",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"task\": \"bad_task\",\n  \"data\": {}\n}"
+        },
+        "url": "{{base_url}}/jobs/"
+      }
+    },
+    {
+      "name": "7. List dead-letter jobs",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/jobs/dead/"
+      }
+    }
+  ]
+}
