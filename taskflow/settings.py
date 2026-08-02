@@ -20,12 +20,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$u9w%h^^q3q-rz4j&wgs9*540r$v&^odrx*s40mo+31#aw42sc'
+SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-key-change-me')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',') if h.strip()]
 
 
 # Application definition
@@ -122,8 +122,6 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-
 from dotenv import load_dotenv
-import os
+
 load_dotenv()
-print(os.getenv("REDIS_URL"))
